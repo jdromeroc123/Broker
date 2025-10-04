@@ -2,24 +2,28 @@
 #include <stdlib.h>
 #include <string.h>
 #ifdef _WIN32
+// Librerías específicas de Windows para sockets
 #include <winsock2.h>
 #include <ws2tcpip.h>
 SOCKET socket_udp;
+// Manejador de señales para cerrar el socket correctamente al presionar Ctrl+C
 BOOL WINAPI manejar_ctrl_c(DWORD evento){
     if(evento == CTRL_C_EVENT || evento == CTRL_BREAK_EVENT){
         printf("Cerrando el socket y terminando la ejecucion...\n");
         closesocket(socket_udp);
-        WSACleanup();
+        WSACleanup(); // Limpieza de recursos de Windows Sockets API
         exit(0);
         }
     return FALSE;
 }
 #else 
+// Librerías específicas de Linux/UNIX
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 int socket_udp;
+// Manejador de señal SIGINT (Ctrl+C) para cerrar el socket correctamente
 void manejar_ctrl_c(int signo){
     printf("Cerrando el socket y terminando la ejecución...\n");
     close(socket_udp);
@@ -27,22 +31,36 @@ void manejar_ctrl_c(int signo){
     }
 #endif
 
+// Puerto en el que el bróker UDP escuchará los mensajes
 #define PUERTO 61626
+
+// --------------------
+// Estructuras de datos
+// --------------------
+
+// Lista enlazada de suscriptores
 
 struct Suscriptor{
     struct Suscriptor* siguiente;
-    struct sockaddr_in addr;
+    struct sockaddr_in addr; // Dirección del suscriptor
 };
 
+// Lista enlazada de tópicos
 struct Topico{
     char nombre[50];
     struct Suscriptor* suscriptores;
     struct Topico* siguiente;
 };
 
+// Puntero al inicio de las listas de tópicos y suscriptores
 struct Topico* topicos = NULL;
 struct Suscriptor* suscriptores = NULL;
 
+// -------------------------
+// Manejo de tópicos
+// -------------------------
+
+// Crea un nuevo tópico si no existe y lo agrega a la lista
 struct Topico* crear_topico(char* nombre){
     struct Topico* nuevo_topico = malloc(sizeof(struct Topico));
     if (nuevo_topico ==NULL){
@@ -65,6 +83,7 @@ struct Topico* crear_topico(char* nombre){
     return topicos;
 }
 
+// Busca un tópico en la lista por nombre
 struct Topico* buscar_topico(char* nombre){
     struct Topico* actual = topicos;
     while(actual !=NULL){
@@ -76,6 +95,11 @@ struct Topico* buscar_topico(char* nombre){
     return NULL;
 }
 
+// --------------------------
+// Envío de mensajes por UDP
+// --------------------------
+
+// Envía el mensaje a todos los suscriptores del tópico
 int enviar_mensaje(struct Topico* topico, char* mensaje){
     struct Suscriptor* actual = topico->suscriptores;
     while(actual!=NULL){
@@ -93,6 +117,8 @@ int enviar_mensaje(struct Topico* topico, char* mensaje){
     }
 }
 
+
+// Construye el mensaje final y lo envía a los suscriptores del tópico
 int enviar_contenido(char* topico, char* contenido){
     struct Topico* existe = buscar_topico(topico);
                 if(existe==NULL){
@@ -104,6 +130,11 @@ int enviar_contenido(char* topico, char* contenido){
                 }
 }
 
+// -------------------------------
+// Manejo de suscriptores
+// -------------------------------
+
+// Inserta un nuevo suscriptor en la lista del tópico
 struct Topico* insertar_suscriptor(struct Topico* topico, struct Suscriptor* suscriptor){
     if(topico == NULL || suscriptor == NULL){
         printf("Errror: topico o suscrpitor nulo.\n");
@@ -122,8 +153,10 @@ struct Topico* insertar_suscriptor(struct Topico* topico, struct Suscriptor* sus
     char puerto_str[6];
     sprintf(puerto_str, "%d", ntohs(suscriptor->addr.sin_port));
     printf("Usuario con direccion %s:%s suscrito a topico %s\n", inet_ntoa(suscriptor->addr.sin_addr), puerto_str, topico->nombre);
+    return topico;
 }
 
+// Crea un nuevo suscriptor a partir de la dirección del remitente
 struct Suscriptor* crear_suscriptor(struct sockaddr_in direccion){
     struct Suscriptor* nuevo_suscriptor = malloc(sizeof(struct Suscriptor));
     if (nuevo_suscriptor == NULL){
@@ -138,6 +171,7 @@ struct Suscriptor* crear_suscriptor(struct sockaddr_in direccion){
     return nuevo_suscriptor;
 }
 
+// Añade un suscriptor a un tópico existente
 struct Topico* suscribir(char* topico, struct sockaddr_in remitente){
     struct Topico* topico_encontrado = buscar_topico(topico);
     if(topico_encontrado==NULL){
@@ -154,7 +188,11 @@ struct Topico* suscribir(char* topico, struct sockaddr_in remitente){
     }
 }
 
+// ------------------------------
+// Procesamiento de mensajes UDP
+// ------------------------------
 
+// Extrae instrucción, tópico y contenido del mensaje recibido
 
 int descomponer_mensaje(char* mensaje,char** instruccion, char** topico, char** contenido){
     *instruccion = malloc(151 * sizeof(char));
@@ -196,6 +234,7 @@ int descomponer_mensaje(char* mensaje,char** instruccion, char** topico, char** 
     return 0;
 }
 
+// Recibe un mensaje UDP, obtiene dirección del remitente y descompone el mensaje
 int recibir_mensaje(char* mensaje, char** instruccion, char** topico, char** contenido, socklen_t* tamaño, struct sockaddr_in* remitente){
     int bytes_recibidos = recvfrom(socket_udp, mensaje, 151, 0, (struct sockaddr*)remitente, tamaño);
     mensaje[bytes_recibidos] = '\0';
@@ -214,6 +253,9 @@ int recibir_mensaje(char* mensaje, char** instruccion, char** topico, char** con
 
 }
 
+// ------------------------
+// Función principal
+// ------------------------
 int main(){
 
     struct sockaddr_in broker;
@@ -221,7 +263,9 @@ int main(){
     broker.sin_port = htons(PUERTO);
     broker.sin_addr.s_addr = INADDR_ANY;
 
+    //Inicialización de sockets según sistema operativo
     #ifdef _WIN32
+    // Inicializar la librería Winsock (Windows)
     WSADATA wsaData;
     if(WSAStartup(MAKEWORD(2,2), &wsaData) !=0){
         printf("Error al iniciar Winsock. \n");
@@ -232,6 +276,7 @@ int main(){
     signal(SIGINT, manejar_ctrl_c);
     #endif
 
+    // Creación del socket UDP
     socket_udp = socket(AF_INET, SOCK_DGRAM, 0);
     #ifdef _WIN32
     if(socket_udp == INVALID_SOCKET){
@@ -260,6 +305,7 @@ int main(){
     printf("Broker UDP funcionando en el puerto %d\n", PUERTO);
     socklen_t tam_direccion =sizeof(struct sockaddr_in);
     struct sockaddr_in remitente;
+    // Recibe mensaje y actúa según la instrucción
     while(1){
         char* mensaje = malloc(151* sizeof(char));
         char* instruccion = NULL;
@@ -273,6 +319,7 @@ int main(){
                 suscribir(topico, remitente);
             }
         }
+        // Liberar memoria dinámica
         free(mensaje);
         free(instruccion);
         free(topico);

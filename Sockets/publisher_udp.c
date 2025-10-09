@@ -67,6 +67,45 @@ char* leer_mensaje() {
     return mensaje;
 }
 
+int peticiones(int n, struct sockaddr* broker){
+    int j =0;
+    int resultado;
+    while (j<n ){
+        char buffer[100];
+        sprintf(buffer, "%d", j);
+        char* mensaje = malloc(151 * sizeof(char));
+        if (mensaje == NULL) {
+            printf("Error al asignar memoria.\n");
+            free(mensaje);
+            return 1;
+        }
+        // Prefijo obligatorio para indicar publicación
+        mensaje[0] = 'P';
+        mensaje[1] = 'U';
+        mensaje[2] = 'B';
+        mensaje[3] = '|';
+        mensaje[4] = 'p';
+        mensaje[5] = '|';
+        int len = strlen(buffer);
+        strncpy(mensaje + 6, buffer, len);
+        mensaje[6 + len] = '\0';
+
+        resultado = sendto(socket_udp, mensaje, strlen(mensaje), 0, broker, sizeof(struct sockaddr_in));
+            #ifdef _WIN32
+            if (resultado == SOCKET_ERROR){
+                printf("Error al enviar el mensaje.\n");
+            }
+            #else
+            if (resultado <0){
+                printf("Error al enviar el mensaje. \n");
+            }
+            #endif
+        j++;
+        free(mensaje);
+    }
+    return 0;
+}
+
 // --------------------------------------------------------
 // Función principal
 // --------------------------------------------------------
@@ -123,7 +162,7 @@ int main(){
     #endif
 
     // Bucle principal: leer mensaje del usuario y enviarlo al bróker
-    while(1){
+    /*while(1){
         char* mensaje = leer_mensaje();
         if(mensaje!= NULL){
             int resultado = sendto(socket_udp, mensaje, strlen(mensaje), 0, (struct sockaddr*)&broker, sizeof(broker));
@@ -138,7 +177,24 @@ int main(){
             #endif
         // Liberar memoria luego del envío
         free(mensaje);
+        
         }
-    }
+    }*/
+    char* mensaje = leer_mensaje();
+        if(mensaje!= NULL){
+            int resultado = sendto(socket_udp, mensaje, strlen(mensaje), 0, (struct sockaddr*)&broker, sizeof(broker));
+            #ifdef _WIN32
+            if (resultado == SOCKET_ERROR){
+                printf("Error al enviar el mensaje.\n");
+            }
+            #else
+            if (resultado <0){
+                printf("Error al enviar el mensaje. \n");
+            }
+            #endif
+        // Liberar memoria luego del envío
+        free(mensaje);
+        }
+    peticiones(2500, (struct sockaddr*)&broker);
     return 0;
 }
